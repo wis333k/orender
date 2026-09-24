@@ -1,0 +1,87 @@
+name: render
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: "Comma-separated YouTube ids (empty = read manifest.json)"
+        required: false
+        default: ""
+      tag:
+        description: "Release tag holding the tts zip assets"
+        required: false
+        default: "tts"
+      chunk:
+        description: "Videos per matrix job"
+        required: false
+        default: "1"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      count: ${{ steps.build.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: build
+        env:
+          IDS: ${{ github.event.inputs.ids }}
+          CHUNK: ${{ github.event.inputs.chunk }}
+        run: |
+          python - <<'PY'
+          import json, os
+          ids = [x.strip() for x in os.environ.get("IDS","").split(",") if x.strip()]
+          if not ids:
+              ids = json.load(open("manifest.json"))
+          chunk = max(1, int(os.environ.get("CHUNK") or 1))
+          groups = [ids[i:i+chunk] for i in range(0, len(ids), chunk)]
+          groups = groups[:250]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=%s\n" % json.dumps({"group": groups}))
+              f.write("count=%d\n" % len(ids))
+          print("groups:", len(groups), "videos:", len(ids))
+          PY
+
+  render:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg unzip
+          python -m pip install --quiet --upgrade yt-dlp
+          yt-dlp --version
+          ffmpeg -version | head -1
+      - name: Download tts assets and render
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+          GROUP: ${{ join(matrix.group, ' ') }}
+        run: |
+          mkdir -p work out
+          for yid in $GROUP; do
+            url="https://github.com/${{ github.repository }}/releases/download/${TAG}/${yid}.zip"
+            echo "::group::asset $yid"
+            curl -fsSL "$url" -o "work/${yid}.zip" \
+              && unzip -oq "work/${yid}.zip" -d "work/w_${yid}" \
+              || { echo "no asset for $yid"; echo "::endgroup::"; continue; }
+            echo "::endgroup::"
+            echo "::group::render $yid"
+            python render_one.py "$yid" work out || echo "render failed $yid"
+            echo "::endgroup::"
+          done
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: out-${{ strategy.job-index }}
+          path: out/*.mp4
+          if-no-files-found: ignore
+          retention-days: 30
