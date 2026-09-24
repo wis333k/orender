@@ -73,17 +73,20 @@ def main():
     wd = os.path.join(work, "w_" + yid)
     os.makedirs(wd, exist_ok=True)
     os.makedirs(out, exist_ok=True)
-
-    sents = json.load(open(os.path.join(wd, "script.json"), encoding="utf-8"))
+    out = os.path.abspath(out)
+    wd = os.path.abspath(wd)
     src = os.path.join(wd, "src.mp4")
     if dur(src) < 30:
         print(f"{yid} NO-SOURCE", flush=True)
         sys.exit(2)
 
+    sents = json.load(open(os.path.join(wd, "script.json"), encoding="utf-8"))
+    os.chdir(wd)
+
     parts, marks, t = [], [], 0.0
     for i, s in enumerate(sents):
-        mp3 = os.path.join(wd, f"s{i:02d}.mp3")
-        wav = os.path.join(wd, f"s{i:02d}.wav")
+        mp3 = f"s{i:02d}.mp3"
+        wav = f"s{i:02d}.wav"
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", mp3,
                         "-ar", "24000", "-ac", "1", wav], check=True)
         d = dur(wav)
@@ -91,19 +94,16 @@ def main():
         t += d + GAP
         parts.append(wav)
 
-    sil = os.path.join(wd, "sil.wav")
-    nwav = os.path.join(wd, "n.wav")
-    lst = os.path.join(wd, "lst.txt")
-    with open(lst, "w") as f:
+    with open("lst.txt", "w") as f:
         for p in parts:
             f.write(f"file '{p}'\n")
-            f.write(f"file '{sil}'\n")
+            f.write("file 'sil.wav'\n")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
-                    "-i", lst, "-c:a", "pcm_s16le", nwav], check=True)
+                    "-i", "lst.txt", "-c:a", "pcm_s16le", "n.wav"], check=True)
 
-    Tvid = dur(nwav) + 1.0
-    if dur(src) < Tvid + 2:
-        print(f"{yid} SOURCE-TOO-SHORT ({dur(src):.0f}s < {Tvid:.0f}s)", flush=True)
+    Tvid = dur("n.wav") + 1.0
+    if dur("src.mp4") < Tvid + 2:
+        print(f"{yid} SOURCE-TOO-SHORT ({dur('src.mp4'):.0f}s < {Tvid:.0f}s)", flush=True)
         sys.exit(3)
 
     body = ""
@@ -112,13 +112,12 @@ def main():
             break
         body += (f"Dialogue: 0,{ts(a - 0.05)},{ts(min(b + 0.12, Tvid + 2))},"
                  f"TikTok,,0,0,0,,{wrap(s)}\n")
-    assp = os.path.join(wd, "k.ass")
-    open(assp, "w", encoding="utf-8").write(ASS_HEAD + body)
+    open("k.ass", "w", encoding="utf-8").write(ASS_HEAD + body)
 
     DD = str(int(Tvid) + 2)
     fc = (f"[0:v]scale=1280:720:flags=lanczos,setsar=1,eq=saturation=0.72,"
-          f"vignette=PI/4.6,noise=alls=5:allf=t+u,ass={assp},"
-          "drawtext=font='DejaVu Sans:style=Bold':"
+          f"vignette=PI/4.6,noise=alls=5:allf=t+u,ass=k.ass,"
+          "drawtext=font='DejaVu Sans':"
           "text='OStudio Review':fontsize=28:fontcolor=white:"
           "borderw=2:bordercolor=black:x=30:y=40,"
           "unsharp=5:5:0.4:5:5:0.0[v];"
@@ -131,7 +130,7 @@ def main():
           "loudnorm=I=-14:TP=-1.5:LRA=11[a]")
     final = os.path.join(out, yid + ".mp4")
     subprocess.run(["ffmpeg", "-y", "-ss", "0", "-t", str(Tvid),
-                    "-i", src, "-i", nwav, "-filter_complex", fc,
+                    "-i", "src.mp4", "-i", "n.wav", "-filter_complex", fc,
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264",
                     "-preset", "medium", "-crf", "20", "-c:a", "aac",
                     "-shortest", final], check=True)
