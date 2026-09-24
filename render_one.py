@@ -1,25 +1,22 @@
 #!/usr/bin/env python
 """Render one comeback video inside GitHub Actions.
 
-Input:  tts/<yid>.zip  (extracted to a work dir) containing:
+Input:  work/w_<yid>/ containing:
           script.json   - list of Vietnamese narration sentences
           s00.mp3 ...   - CapCut TTS per sentence
           sil.wav       - 0.45s silence
+          src.mp4       - source clip trimmed to narration length
 Output: <out>/<yid>.mp4
 
-Steps: download 1080p source with yt-dlp, build the narration wav by
-concatenating the mp3s, author ASS subtitles, then ffmpeg the OStudio look.
+The source clip is produced on the PC (runner IPs are blocked by YouTube).
+This script builds the narration wav, authors ASS subtitles, then ffmpeg.
 """
 import json
 import os
 import subprocess
 import sys
 
-SECLEN = 200
-START = 20
 GAP = 0.45
-FMT = ("bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-       "bestvideo[height<=1080]+bestaudio/best[height<=720]")
 
 ASS_HEAD = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n"
             "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, BackColour, "
@@ -78,9 +75,9 @@ def main():
     os.makedirs(out, exist_ok=True)
 
     sents = json.load(open(os.path.join(wd, "script.json"), encoding="utf-8"))
-    src = os.path.join(work, yid + ".mp4")
-    if not download(yid, src):
-        print(f"{yid} DOWNLOAD-FAIL", flush=True)
+    src = os.path.join(wd, "src.mp4")
+    if dur(src) < 30:
+        print(f"{yid} NO-SOURCE", flush=True)
         sys.exit(2)
 
     parts, marks, t = [], [], 0.0
@@ -121,7 +118,7 @@ def main():
     DD = str(int(Tvid) + 2)
     fc = (f"[0:v]scale=1280:720:flags=lanczos,setsar=1,eq=saturation=0.72,"
           f"vignette=PI/4.6,noise=alls=5:allf=t+u,ass={assp},"
-          "drawtext=fontfile='DejaVuSans-Bold.ttf':"
+          "drawtext=font='DejaVu Sans:style=Bold':"
           "text='OStudio Review':fontsize=28:fontcolor=white:"
           "borderw=2:bordercolor=black:x=30:y=40,"
           "unsharp=5:5:0.4:5:5:0.0[v];"
