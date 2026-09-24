@@ -55,13 +55,15 @@ def download(yid, dst):
     mm = "%02d:%02d" % (START // 60, START % 60)
     ee = "%02d:%02d" % ((START + SECLEN) // 60, (START + SECLEN) % 60)
     for fmt in (FMT, "best[height<=720]"):
-        subprocess.run(["yt-dlp", "--no-playlist",
-                        "--download-sections", f"*{mm}-{ee}",
-                        "-f", fmt, "--merge-output-format", "mp4",
-                        "-o", dst, f"https://www.youtube.com/watch?v={yid}"],
-                       capture_output=True)
+        r = subprocess.run(["yt-dlp", "--no-playlist",
+                            "--js-runtimes", "node",
+                            "--download-sections", f"*{mm}-{ee}",
+                            "-f", fmt, "--merge-output-format", "mp4",
+                            "-o", dst, f"https://www.youtube.com/watch?v={yid}"],
+                           capture_output=True, text=True)
         if dur(dst) >= 30:
             return True
+        print("  yt-dlp:", (r.stderr or "")[-400:], flush=True)
         if os.path.exists(dst):
             os.remove(dst)
     return False
