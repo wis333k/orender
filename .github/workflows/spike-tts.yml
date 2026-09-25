@@ -1,0 +1,27 @@
+name: spike-tts
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -q flask flask-cors requests
+      - name: Run TTS reachability probe
+        run: python spike/run_probe.py
+      - name: Show server log
+        if: always()
+        run: cat spike/server.log || true
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-tts-result
+          path: spike/probe_result.json
+          if-no-files-found: ignore
