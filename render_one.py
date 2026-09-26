@@ -102,9 +102,18 @@ def main():
                     "-i", "lst.txt", "-c:a", "pcm_s16le", "n.wav"], check=True)
 
     Tvid = dur("n.wav") + 1.0
+    srcv = "src.mp4"
+    loops = 0
     if dur("src.mp4") < Tvid + 2:
-        print(f"{yid} SOURCE-TOO-SHORT ({dur('src.mp4'):.0f}s < {Tvid:.0f}s)", flush=True)
-        sys.exit(3)
+        # source shorter than narration -> loop it seamlessly instead of failing
+        loops = int((Tvid + 2) // max(1.0, dur("src.mp4"))) + 1
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                        "-i", "color=c=black:s=1280x720:r=30",
+                        "-i", "src.mp4"], capture_output=True)  # noop warm-up
+        subprocess.run(["ffmpeg", "-y", "-v", "error",
+                        "-stream_loop", str(loops), "-i", "src.mp4",
+                        "-c", "copy", "src_loop.mp4"], check=True)
+        srcv = "src_loop.mp4"
 
     body = ""
     for a, b, s in marks:
@@ -130,7 +139,7 @@ def main():
           "loudnorm=I=-14:TP=-1.5:LRA=11[a]")
     final = os.path.join(out, yid + ".mp4")
     subprocess.run(["ffmpeg", "-y", "-ss", "0", "-t", str(Tvid),
-                    "-i", "src.mp4", "-i", "n.wav", "-filter_complex", fc,
+                    "-i", srcv, "-i", "n.wav", "-filter_complex", fc,
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264",
                     "-preset", "medium", "-crf", "20", "-c:a", "aac",
                     "-shortest", final], check=True)
